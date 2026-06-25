@@ -1,24 +1,79 @@
 import { useEffect, useState } from "react";
-import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import {
+  ActivityIndicator,
+  Alert,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import EmptyState from "../components/EmptyState";
+import api from "../services/api";
 import { colors } from "../theme/colors";
 
 const actions = [
   { id: "entrada", label: "Registrar Entrada", type: "Entrada", icon: "log-in" },
   { id: "intervalo", label: "Intervalo Saida", type: "Intervalo Saida", icon: "cafe" },
-  { id: "retorno", label: "Intervalo Retorno", type: "Intervalo Retorno", icon: "return-up-back" },
+  {
+    id: "retorno",
+    label: "Intervalo Retorno",
+    type: "Intervalo Retorno",
+    icon: "return-up-back",
+  },
   { id: "saida", label: "Registrar Saida", type: "Saida", icon: "log-out" },
 ];
 
+function formatTime(dateValue) {
+  return new Date(dateValue).toLocaleTimeString("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function formatDate(dateValue) {
+  return new Date(dateValue).toLocaleDateString("pt-BR");
+}
+
 export default function TimeClockScreen() {
   const [now, setNow] = useState(new Date());
-  const [records, setRecords] = useState([
-    { id: "1", type: "Entrada", time: "08:02" },
-    { id: "2", type: "Intervalo Saida", time: "12:05" },
-  ]);
+  const [records, setRecords] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [savingType, setSavingType] = useState(null);
+
+  async function loadRecords() {
+    const response = await api.get("/ponto");
+    setRecords(response.data.registros || []);
+  }
+
+  async function fetchRecords() {
+    try {
+      setLoading(true);
+      await loadRecords();
+    } catch (error) {
+      Alert.alert("Erro", "Nao foi possivel carregar os registros de ponto.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function refreshRecords() {
+    try {
+      setRefreshing(true);
+      await loadRecords();
+    } catch (error) {
+      Alert.alert("Erro", "Nao foi possivel atualizar os registros.");
+    } finally {
+      setRefreshing(false);
+    }
+  }
 
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 1000);
+    fetchRecords();
     return () => clearInterval(timer);
   }, []);
 
@@ -27,58 +82,78 @@ export default function TimeClockScreen() {
     minute: "2-digit",
   });
 
-  const handleRegister = (type) => {
-    const time = new Date().toLocaleTimeString("pt-BR", {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-
-    setRecords((current) => [
-      { id: String(Date.now()), type, time },
-      ...current,
-    ]);
-    Alert.alert("Ponto registrado", `${type} as ${time}`);
-  };
+  async function handleRegister(type) {
+    try {
+      setSavingType(type);
+      const response = await api.post("/ponto/bater", { tipo: type });
+      await loadRecords();
+      Alert.alert("Ponto registrado", `${response.data.ponto.tipo} as ${formatTime(response.data.ponto.data_hora)}`);
+    } catch (error) {
+      const message =
+        error.response?.data?.error || "Nao foi possivel registrar o ponto.";
+      Alert.alert("Erro", message);
+    } finally {
+      setSavingType(null);
+    }
+  }
 
   return (
     <ScrollView
       style={styles.container}
       contentContainerStyle={styles.content}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={refreshRecords} />
+      }
       showsVerticalScrollIndicator={false}
     >
       <View style={styles.clockPanel}>
         <Text style={styles.clockLabel}>Horario atual</Text>
         <Text style={styles.clockText}>{currentTime}</Text>
-        <Text style={styles.clockHint}>Registro local simulado</Text>
+        <Text style={styles.clockHint}>Sincronizado com o backend</Text>
       </View>
 
       <View style={styles.actionGrid}>
         {actions.map((action) => (
           <TouchableOpacity
             key={action.id}
-            style={styles.actionButton}
+            style={[styles.actionButton, savingType && styles.buttonDisabled]}
             onPress={() => handleRegister(action.type)}
+            disabled={Boolean(savingType)}
           >
-            <Ionicons name={action.icon} size={24} color={colors.primary} />
+            {savingType === action.type ? (
+              <ActivityIndicator color={colors.primary} />
+            ) : (
+              <Ionicons name={action.icon} size={24} color={colors.primary} />
+            )}
             <Text style={styles.actionText}>{action.label}</Text>
           </TouchableOpacity>
         ))}
       </View>
 
       <View style={styles.historyHeader}>
-        <Text style={styles.historyTitle}>Registros de hoje</Text>
+        <Text style={styles.historyTitle}>Registros</Text>
         <Text style={styles.historyCount}>{records.length}</Text>
       </View>
 
-      {records.map((record) => (
-        <View key={record.id} style={styles.recordCard}>
-          <View>
-            <Text style={styles.recordType}>{record.type}</Text>
-            <Text style={styles.recordMeta}>Ponto local</Text>
+      {loading ? (
+        <ActivityIndicator color={colors.primary} style={styles.loader} />
+      ) : records.length === 0 ? (
+        <EmptyState
+          icon="time-outline"
+          title="Nenhum ponto registrado"
+          message="Use os botoes acima para registrar o primeiro ponto."
+        />
+      ) : (
+        records.map((record) => (
+          <View key={record.id} style={styles.recordCard}>
+            <View>
+              <Text style={styles.recordType}>{record.tipo}</Text>
+              <Text style={styles.recordMeta}>{formatDate(record.data_hora)}</Text>
+            </View>
+            <Text style={styles.recordTime}>{formatTime(record.data_hora)}</Text>
           </View>
-          <Text style={styles.recordTime}>{record.time}</Text>
-        </View>
-      ))}
+        ))
+      )}
     </ScrollView>
   );
 }
@@ -136,6 +211,9 @@ const styles = StyleSheet.create({
     minHeight: 112,
     padding: 14,
   },
+  buttonDisabled: {
+    opacity: 0.7,
+  },
   actionText: {
     color: colors.text,
     fontSize: 14,
@@ -157,6 +235,9 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontSize: 13,
     fontWeight: "800",
+  },
+  loader: {
+    marginTop: 20,
   },
   recordCard: {
     alignItems: "center",

@@ -109,4 +109,33 @@ router.patch("/:id/status", authMiddleware, async (req, res) => {
   }
 });
 
+router.delete("/:id", authMiddleware, async (req, res) => {
+  const { id } = req.params;
+  const usuarioId = req.usuario.id;
+
+  try {
+    const tarefaRemovida = await pool.query(
+      `DELETE FROM tarefas
+       WHERE id = $1 AND usuario_id = $2
+       RETURNING id`,
+      [id, usuarioId]
+    );
+
+    if (tarefaRemovida.rows.length === 0) {
+      return res.status(404).json({
+        error: "Tarefa nao encontrada.",
+      });
+    }
+
+    return res.json({
+      message: "Tarefa removida com sucesso!",
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({
+      error: "Erro interno ao remover tarefa.",
+    });
+  }
+});
+
 module.exports = router;

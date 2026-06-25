@@ -177,6 +177,7 @@ POST /auth/login
 POST  /tarefas/criar
 GET   /tarefas
 PATCH /tarefas/:id/status
+DELETE /tarefas/:id
 ```
 
 ### Ponto
